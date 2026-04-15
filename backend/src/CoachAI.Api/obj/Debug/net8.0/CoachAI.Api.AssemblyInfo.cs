@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CoachAI.Api")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+253ed8d7c903a2b133bff2f34ec65585c9c1b533")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+cd24279ea91b89e03211d18f271884eb74d38bf7")]
 [assembly: System.Reflection.AssemblyProductAttribute("CoachAI.Api")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CoachAI.Api")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
