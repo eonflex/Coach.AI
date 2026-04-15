@@ -58,6 +58,7 @@ public static class DocumentEndpoints
         IDocumentExtractionService extractor,
         IServiceScopeFactory scopeFactory,
         IConfiguration config,
+        ILoggerFactory loggerFactory,
         CancellationToken ct)
     {
         if (file == null || file.Length == 0)
@@ -88,6 +89,7 @@ public static class DocumentEndpoints
 
         var docId = doc.Id;
         var contentType = file.ContentType;
+        var logger = loggerFactory.CreateLogger("DocumentExtraction");
 
         _ = Task.Run(async () =>
         {
@@ -108,8 +110,12 @@ public static class DocumentEndpoints
                 var savedDoc = await scopedDb.UploadedDocuments.FindAsync(docId);
                 if (savedDoc != null) savedDoc.ExtractionDone = true;
                 await scopedDb.SaveChangesAsync();
+                logger.LogInformation("Extraction complete for document {DocumentId}: {ChunkCount} chunks", docId, dbChunks.Count);
             }
-            catch { /* logged by host */ }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Background extraction failed for document {DocumentId}", docId);
+            }
         }, CancellationToken.None);
 
         return Results.Created($"/api/documents/{doc.Id}",

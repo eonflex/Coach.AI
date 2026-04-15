@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using CoachAI.Api.Data;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.Configuration;
 using Xunit;
 
 namespace CoachAI.Api.Tests;
@@ -21,6 +22,14 @@ public class FoodItemTests : IClassFixture<WebApplicationFactory<Program>>
         _factory = factory.WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment("Testing");
+            builder.ConfigureAppConfiguration((_, config) =>
+            {
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Auth:Username"] = "testuser",
+                    ["Auth:Password"] = "testpass"
+                });
+            });
             builder.ConfigureServices(services =>
             {
                 var descriptor = services.SingleOrDefault(d => d.ServiceType == typeof(DbContextOptions<AppDbContext>));
@@ -34,7 +43,7 @@ public class FoodItemTests : IClassFixture<WebApplicationFactory<Program>>
     private HttpClient CreateAuthClient()
     {
         var client = _factory.CreateClient();
-        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes("coach:changeme"));
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes("testuser:testpass"));
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
         return client;
     }

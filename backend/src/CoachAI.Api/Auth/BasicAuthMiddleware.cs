@@ -14,11 +14,13 @@ public class BasicAuthMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly AuthOptions _auth;
+    private readonly ILogger<BasicAuthMiddleware> _logger;
 
-    public BasicAuthMiddleware(RequestDelegate next, IOptions<AuthOptions> auth)
+    public BasicAuthMiddleware(RequestDelegate next, IOptions<AuthOptions> auth, ILogger<BasicAuthMiddleware> logger)
     {
         _next = next;
         _auth = auth.Value;
+        _logger = logger;
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -54,8 +56,9 @@ public class BasicAuthMiddleware
                 return;
             }
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Failed to parse Authorization header from {RemoteIp}", context.Connection.RemoteIpAddress);
             Reject(context);
             return;
         }

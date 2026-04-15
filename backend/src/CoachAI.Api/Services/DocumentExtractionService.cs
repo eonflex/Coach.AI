@@ -30,7 +30,7 @@ public class DocumentExtractionService : IDocumentExtractionService
         return Task.FromResult<IReadOnlyList<string>>(chunks);
     }
 
-    private static string ExtractPdf(string filePath)
+    private string ExtractPdf(string filePath)
     {
         var sb = new StringBuilder();
         try
@@ -41,14 +41,14 @@ public class DocumentExtractionService : IDocumentExtractionService
                 sb.AppendLine(page.Text);
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Return empty if can't parse
+            _logger.LogWarning(ex, "Failed to extract text from PDF: {FilePath}", filePath);
         }
         return sb.ToString();
     }
 
-    private static string ExtractDocx(string filePath)
+    private string ExtractDocx(string filePath)
     {
         var sb = new StringBuilder();
         try
@@ -63,17 +63,21 @@ public class DocumentExtractionService : IDocumentExtractionService
                 }
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // Return empty if can't parse
+            _logger.LogWarning(ex, "Failed to extract text from DOCX: {FilePath}", filePath);
         }
         return sb.ToString();
     }
 
-    private static string TryExtractAsText(string filePath)
+    private string TryExtractAsText(string filePath)
     {
         try { return File.ReadAllText(filePath); }
-        catch { return string.Empty; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read file as text: {FilePath}", filePath);
+            return string.Empty;
+        }
     }
 
     private static List<string> SplitIntoChunks(string text, int chunkSize)
