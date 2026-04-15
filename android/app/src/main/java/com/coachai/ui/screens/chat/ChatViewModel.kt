@@ -14,7 +14,11 @@ data class ChatUiState(
     val isLoading: Boolean = false,
     val isSending: Boolean = false,
     val error: String? = null,
-    val history: List<ChatHistoryItem> = emptyList()
+    val history: List<ChatHistoryItem> = emptyList(),
+    /** Context summary returned by the most recent assistant response.
+     *  Displayed beneath the last assistant bubble so the user can see
+     *  what documents/logs grounded the reply. */
+    val lastContextSummary: String? = null
 )
 
 @HiltViewModel
@@ -51,7 +55,8 @@ class ChatViewModel @Inject constructor(
                 val assistantMsg = ChatHistoryItem(response.id, "assistant", response.reply, response.createdAt)
                 _uiState.value = _uiState.value.copy(
                     isSending = false,
-                    history = updatedHistory + assistantMsg
+                    history = updatedHistory + assistantMsg,
+                    lastContextSummary = response.contextSummary
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(isSending = false, error = e.message)
