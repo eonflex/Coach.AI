@@ -25,16 +25,39 @@ public class OllamaModelService : IModelService
 
     public async Task<string> GenerateAsync(string systemPrompt, string userMessage, CancellationToken ct = default)
     {
-        var payload = new
-        {
-            model = _options.Model,
-            messages = new[]
+        return await SendChatAsync(systemPrompt, userMessage, jsonMode: false, ct);
+    }
+
+    public async Task<string> GenerateStructuredAsync(string systemPrompt, string userMessage, CancellationToken ct = default)
+    {
+        // Requests JSON mode from Ollama — the model is constrained to return valid JSON.
+        return await SendChatAsync(systemPrompt, userMessage, jsonMode: true, ct);
+    }
+
+    private async Task<string> SendChatAsync(string systemPrompt, string userMessage, bool jsonMode, CancellationToken ct)
+    {
+        object payload = jsonMode
+            ? new
             {
-                new { role = "system", content = systemPrompt },
-                new { role = "user", content = userMessage }
-            },
-            stream = false
-        };
+                model = _options.Model,
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userMessage }
+                },
+                stream = false,
+                format = "json"
+            }
+            : new
+            {
+                model = _options.Model,
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userMessage }
+                },
+                stream = false
+            };
 
         var json = JsonSerializer.Serialize(payload);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -50,7 +73,7 @@ public class OllamaModelService : IModelService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ollama model service failed");
+            _logger.LogError(ex, "Ollama model service failed (jsonMode={JsonMode})", jsonMode);
             throw;
         }
     }

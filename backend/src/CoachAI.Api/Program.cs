@@ -16,6 +16,7 @@ builder.Services.AddHttpClient<IModelService, OllamaModelService>();
 
 builder.Services.AddScoped<IDocumentExtractionService, DocumentExtractionService>();
 builder.Services.AddScoped<IRetrievalService, RetrievalService>();
+builder.Services.AddScoped<IExtractionService, ExtractionService>();
 builder.Services.AddScoped<ContextBuilderService>();
 
 builder.Services.AddEndpointsApiExplorer();
@@ -49,6 +50,7 @@ app.MapWeightEndpoints();
 app.MapDocumentEndpoints();
 app.MapTargetEndpoints();
 app.MapChatEndpoints();
+app.MapExtractionEndpoints();
 
 app.Run();
 
