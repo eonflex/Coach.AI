@@ -22,7 +22,12 @@ public class DocumentExtractionService : IDocumentExtractionService
             "application/pdf" => ExtractPdf(filePath),
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => ExtractDocx(filePath),
             "text/plain" => File.ReadAllText(filePath),
-            _ when contentType.StartsWith("image/") => string.Empty,
+            "text/csv" => ExtractDelimited(filePath),
+            "text/tab-separated-values" => ExtractDelimited(filePath),
+            "application/csv" => ExtractDelimited(filePath),
+            // OCR seam: images return a placeholder in v1.
+            // v1.1 upgrade: replace with a call to IOcrExtractionService (Tesseract/ML Kit).
+            _ when contentType.StartsWith("image/") => "[Image content — OCR not yet implemented. See v1.1 roadmap.]",
             _ => TryExtractAsText(filePath)
         };
 
@@ -76,6 +81,20 @@ public class DocumentExtractionService : IDocumentExtractionService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to read file as text: {FilePath}", filePath);
+            return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Reads CSV/TSV files as plain text. Each row becomes a line in the extracted text.
+    /// Useful for nutrition tracking spreadsheets exported as CSV.
+    /// </summary>
+    private string ExtractDelimited(string filePath)
+    {
+        try { return File.ReadAllText(filePath); }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to read delimited file as text: {FilePath}", filePath);
             return string.Empty;
         }
     }

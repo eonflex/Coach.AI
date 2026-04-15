@@ -8,6 +8,27 @@ namespace CoachAI.Api.Endpoints;
 
 public static class DocumentEndpoints
 {
+    /// <summary>
+    /// Allowed MIME types for upload. Reject anything else with 400.
+    /// v1.1: add image/* types once OCR is implemented.
+    /// </summary>
+    private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+        "text/csv",
+        "text/tab-separated-values",
+        "application/csv",
+        // Images: accepted but extraction returns a placeholder until OCR is implemented
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif"
+    };
+
+    private const int DefaultMaxFileSizeMb = 50;
+
     public static void MapDocumentEndpoints(this WebApplication app)
     {
         var group = app.MapGroup("/api/documents").WithTags("Documents");
@@ -16,6 +37,7 @@ public static class DocumentEndpoints
         group.MapGet("/{id:int}", GetDocument);
         group.MapGet("/{id:int}/chunks", GetDocumentChunks);
         group.MapPost("/upload", UploadDocument).DisableAntiforgery();
+        group.MapPost("/{id:int}/reprocess", ReprocessDocument);
         group.MapDelete("/{id:int}", DeleteDocument);
     }
 
@@ -64,6 +86,14 @@ public static class DocumentEndpoints
         if (file == null || file.Length == 0)
             return Results.BadRequest(new ErrorResponse("No file provided"));
 
+        if (!AllowedContentTypes.Contains(file.ContentType))
+            return Results.BadRequest(new ErrorResponse(
+                $"Unsupported file type '{file.ContentType}'. Allowed: PDF, DOCX, TXT, CSV, images."));
+
+        var maxFileSizeMb = config.GetValue<int>("Storage:MaxFileSizeMb", DefaultMaxFileSizeMb);
+        if (file.Length > (long)maxFileSizeMb * 1024 * 1024)
+            return Results.BadRequest(new ErrorResponse($"File exceeds maximum size of {maxFileSizeMb} MB."));
+
         var uploadPath = config["Storage:UploadPath"] ?? "uploads";
         Directory.CreateDirectory(uploadPath);
 
@@ -82,7 +112,8 @@ public static class DocumentEndpoints
             ContentType = file.ContentType,
             StoragePath = filePath,
             FileSizeBytes = file.Length,
-            Notes = notes
+            Notes = notes,
+            ExtractionStatus = ExtractionStatus.Pending
         };
         db.UploadedDocuments.Add(doc);
         await db.SaveChangesAsync(ct);
@@ -91,13 +122,73 @@ public static class DocumentEndpoints
         var contentType = file.ContentType;
         var logger = loggerFactory.CreateLogger("DocumentExtraction");
 
+        RunExtractionAsync(docId, filePath, contentType, scopeFactory, logger);
+
+        return Results.Created($"/api/documents/{doc.Id}",
+            new DocumentResponse(doc.Id, doc.FileName, doc.ContentType, doc.FileSizeBytes,
+                doc.Notes, doc.ExtractionDone, 0, doc.UploadedAt));
+    }
+
+    /// <summary>
+    /// Re-triggers extraction for a document that previously failed or needs re-processing.
+    /// Deletes existing chunks and resets ExtractionStatus to Pending before re-running.
+    /// </summary>
+    private static async Task<IResult> ReprocessDocument(
+        int id,
+        AppDbContext db,
+        IDocumentExtractionService extractor,
+        IServiceScopeFactory scopeFactory,
+        ILoggerFactory loggerFactory,
+        CancellationToken ct)
+    {
+        var doc = await db.UploadedDocuments.FindAsync(new object[] { id }, ct);
+        if (doc == null) return Results.NotFound(new ErrorResponse("Document not found"));
+
+        if (!File.Exists(doc.StoragePath))
+            return Results.UnprocessableEntity(new ErrorResponse(
+                "Source file no longer exists on disk. Cannot reprocess."));
+
+        // Delete existing chunks and reset status
+        await db.DocumentChunks.Where(c => c.DocumentId == id).ExecuteDeleteAsync(ct);
+        doc.ExtractionDone = false;
+        doc.ExtractionStatus = ExtractionStatus.Pending;
+        doc.ExtractionError = null;
+        await db.SaveChangesAsync(ct);
+
+        var logger = loggerFactory.CreateLogger("DocumentExtraction");
+        RunExtractionAsync(id, doc.StoragePath, doc.ContentType, scopeFactory, logger);
+
+        return Results.Accepted($"/api/documents/{id}",
+            new DocumentResponse(doc.Id, doc.FileName, doc.ContentType, doc.FileSizeBytes,
+                doc.Notes, doc.ExtractionDone, 0, doc.UploadedAt));
+    }
+
+    /// <summary>
+    /// Fires and forgets a background extraction task.
+    /// Updates ExtractionStatus, ExtractionDone, and ExtractionError in a fresh DI scope.
+    /// </summary>
+    private static void RunExtractionAsync(
+        int docId,
+        string filePath,
+        string contentType,
+        IServiceScopeFactory scopeFactory,
+        ILogger logger)
+    {
         _ = Task.Run(async () =>
         {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var scopedDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var scopedExtractor = scope.ServiceProvider.GetRequiredService<IDocumentExtractionService>();
+
+            var savedDoc = await scopedDb.UploadedDocuments.FindAsync(docId);
+            if (savedDoc == null) return;
+
+            savedDoc.ExtractionStatus = ExtractionStatus.Processing;
+            await scopedDb.SaveChangesAsync();
+
             try
             {
-                var chunks = await extractor.ExtractChunksAsync(filePath, contentType);
-                await using var scope = scopeFactory.CreateAsyncScope();
-                var scopedDb = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var chunks = await scopedExtractor.ExtractChunksAsync(filePath, contentType);
 
                 var dbChunks = chunks.Select((text, idx) => new DocumentChunk
                 {
@@ -107,20 +198,20 @@ public static class DocumentEndpoints
                 }).ToList();
 
                 scopedDb.DocumentChunks.AddRange(dbChunks);
-                var savedDoc = await scopedDb.UploadedDocuments.FindAsync(docId);
-                if (savedDoc != null) savedDoc.ExtractionDone = true;
+                savedDoc.ExtractionDone = true;
+                savedDoc.ExtractionStatus = ExtractionStatus.Completed;
+                savedDoc.ExtractionError = null;
                 await scopedDb.SaveChangesAsync();
                 logger.LogInformation("Extraction complete for document {DocumentId}: {ChunkCount} chunks", docId, dbChunks.Count);
             }
             catch (Exception ex)
             {
+                savedDoc.ExtractionStatus = ExtractionStatus.Failed;
+                savedDoc.ExtractionError = ex.Message;
+                await scopedDb.SaveChangesAsync();
                 logger.LogError(ex, "Background extraction failed for document {DocumentId}", docId);
             }
         }, CancellationToken.None);
-
-        return Results.Created($"/api/documents/{doc.Id}",
-            new DocumentResponse(doc.Id, doc.FileName, doc.ContentType, doc.FileSizeBytes,
-                doc.Notes, doc.ExtractionDone, 0, doc.UploadedAt));
     }
 
     private static async Task<IResult> DeleteDocument(int id, AppDbContext db, CancellationToken ct)
