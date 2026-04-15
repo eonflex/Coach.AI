@@ -44,6 +44,12 @@ public record LogFoodRequest(
     DateTime? LoggedAt
 );
 
+public record UpdateFoodLogRequest(
+    decimal? ServingsConsumed,
+    string? Meal,
+    string? Notes
+);
+
 public record FoodLogResponse(
     int Id,
     int FoodItemId,

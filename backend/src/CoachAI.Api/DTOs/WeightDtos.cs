@@ -6,6 +6,11 @@ public record LogWeightRequest(
     DateTime? LoggedAt
 );
 
+public record UpdateWeightLogRequest(
+    decimal? WeightKg,
+    string? Notes
+);
+
 public record WeightLogResponse(
     int Id,
     decimal WeightKg,

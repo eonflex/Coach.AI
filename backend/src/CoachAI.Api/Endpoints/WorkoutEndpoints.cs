@@ -16,6 +16,9 @@ public static class WorkoutEndpoints
         group.MapPost("/", CreateWorkoutLog);
         group.MapPut("/{id:int}", UpdateWorkoutLog);
         group.MapDelete("/{id:int}", DeleteWorkoutLog);
+
+        group.MapPut("/{id:int}/exercises/{exerciseId:int}", UpdateExercise);
+        group.MapDelete("/{id:int}/exercises/{exerciseId:int}", DeleteExercise);
     }
 
     private static async Task<IResult> GetWorkoutLogs(AppDbContext db, DateTime? date, int page = 1, int pageSize = 20, CancellationToken ct = default)
@@ -75,6 +78,30 @@ public static class WorkoutEndpoints
 
         await db.SaveChangesAsync(ct);
         return Results.Ok(MapWorkout(log));
+    }
+
+    private static async Task<IResult> UpdateExercise(int id, int exerciseId, UpdateExerciseRequest req, AppDbContext db, CancellationToken ct)
+    {
+        var exercise = await db.Exercises.FirstOrDefaultAsync(e => e.Id == exerciseId && e.WorkoutLogId == id, ct);
+        if (exercise == null) return Results.NotFound(new ErrorResponse("Exercise not found"));
+
+        if (req.Name != null) exercise.Name = req.Name;
+        if (req.Sets.HasValue) exercise.Sets = req.Sets.Value;
+        if (req.Reps.HasValue) exercise.Reps = req.Reps.Value;
+        if (req.WeightKg.HasValue) exercise.WeightKg = req.WeightKg.Value;
+        if (req.Notes != null) exercise.Notes = req.Notes;
+
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new ExerciseResponse(exercise.Id, exercise.Name, exercise.Sets, exercise.Reps, exercise.WeightKg, exercise.Notes));
+    }
+
+    private static async Task<IResult> DeleteExercise(int id, int exerciseId, AppDbContext db, CancellationToken ct)
+    {
+        var exercise = await db.Exercises.FirstOrDefaultAsync(e => e.Id == exerciseId && e.WorkoutLogId == id, ct);
+        if (exercise == null) return Results.NotFound(new ErrorResponse("Exercise not found"));
+        db.Exercises.Remove(exercise);
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
     }
 
     private static async Task<IResult> DeleteWorkoutLog(int id, AppDbContext db, CancellationToken ct)

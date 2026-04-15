@@ -20,6 +20,7 @@ public static class FoodEndpoints
         group.MapGet("/logs", GetFoodLogs);
         group.MapGet("/logs/summary", GetDailySummary);
         group.MapPost("/logs", LogFood);
+        group.MapPut("/logs/{id:int}", UpdateFoodLog);
         group.MapDelete("/logs/{id:int}", DeleteFoodLog);
     }
 
@@ -111,6 +112,9 @@ public static class FoodEndpoints
 
     private static async Task<IResult> GetDailySummary(AppDbContext db, DateTime? date, CancellationToken ct)
     {
+        // NOTE: LoggedAt is stored in UTC. The Android client should pass the date in UTC
+        // (or use the server's UTC date). Cross-timezone day boundaries will cause discrepancies
+        // if the client and server are in different time zones — this is a known v1 limitation.
         var targetDate = (date ?? DateTime.UtcNow).Date;
         var logs = await db.FoodLogs
             .Include(f => f.FoodItem)
@@ -149,6 +153,25 @@ public static class FoodEndpoints
 
         log.FoodItem = foodItem;
         return Results.Created($"/api/foods/logs/{log.Id}", MapFoodLog(log));
+    }
+
+    private static async Task<IResult> UpdateFoodLog(int id, UpdateFoodLogRequest req, AppDbContext db, CancellationToken ct)
+    {
+        var log = await db.FoodLogs.Include(f => f.FoodItem).FirstOrDefaultAsync(f => f.Id == id, ct);
+        if (log == null) return Results.NotFound(new ErrorResponse("Food log not found"));
+
+        if (req.ServingsConsumed.HasValue)
+        {
+            if (req.ServingsConsumed.Value <= 0)
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                    { ["ServingsConsumed"] = ["ServingsConsumed must be greater than zero."] });
+            log.ServingsConsumed = req.ServingsConsumed.Value;
+        }
+        if (req.Meal != null) log.Meal = req.Meal;
+        if (req.Notes != null) log.Notes = req.Notes;
+
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(MapFoodLog(log));
     }
 
     private static async Task<IResult> DeleteFoodLog(int id, AppDbContext db, CancellationToken ct)
