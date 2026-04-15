@@ -14,6 +14,7 @@ public static class WeightEndpoints
         group.MapGet("/", GetWeightLogs);
         group.MapGet("/latest", GetLatestWeight);
         group.MapPost("/", LogWeight);
+        group.MapPut("/{id:int}", UpdateWeightLog);
         group.MapDelete("/{id:int}", DeleteWeightLog);
     }
 
@@ -48,6 +49,24 @@ public static class WeightEndpoints
         db.WeightLogs.Add(log);
         await db.SaveChangesAsync(ct);
         return Results.Created($"/api/weight/{log.Id}", new WeightLogResponse(log.Id, log.WeightKg, log.Notes, log.LoggedAt));
+    }
+
+    private static async Task<IResult> UpdateWeightLog(int id, UpdateWeightLogRequest req, AppDbContext db, CancellationToken ct)
+    {
+        var log = await db.WeightLogs.FindAsync(new object[] { id }, ct);
+        if (log == null) return Results.NotFound(new ErrorResponse("Weight log not found"));
+
+        if (req.WeightKg.HasValue)
+        {
+            if (req.WeightKg.Value <= 0)
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                    { ["WeightKg"] = ["WeightKg must be greater than zero."] });
+            log.WeightKg = req.WeightKg.Value;
+        }
+        if (req.Notes != null) log.Notes = req.Notes;
+
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(new WeightLogResponse(log.Id, log.WeightKg, log.Notes, log.LoggedAt));
     }
 
     private static async Task<IResult> DeleteWeightLog(int id, AppDbContext db, CancellationToken ct)

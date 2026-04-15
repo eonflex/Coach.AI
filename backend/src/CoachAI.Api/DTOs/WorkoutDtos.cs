@@ -8,6 +8,14 @@ public record CreateExerciseRequest(
     string? Notes
 );
 
+public record UpdateExerciseRequest(
+    string? Name,
+    int? Sets,
+    int? Reps,
+    decimal? WeightKg,
+    string? Notes
+);
+
 public record CreateWorkoutLogRequest(
     string WorkoutType,
     string? Notes,
